@@ -10,11 +10,9 @@
 </head>
 <body>
 
-  <!-- Background grid -->
   <div class="bg-grid"></div>
 
   <div class="app-shell">
-
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-logo">
@@ -56,29 +54,15 @@
           </div>
         </div>
       </nav>
-
-      <div class="sidebar-legend">
-        <div class="nav-section-label">Shift Codes</div>
-        <div class="legend-grid">
-          <span class="badge badge-g">G</span><span class="legend-text">9:30AM–6:30PM</span>
-          <span class="badge badge-m">M</span><span class="legend-text">5:30AM–2:30PM</span>
-          <span class="badge badge-a">A</span><span class="legend-text">1:30PM–10:30PM</span>
-          <span class="badge badge-n">N</span><span class="legend-text">9:30PM–6:30AM</span>
-          <span class="badge badge-e">E</span><span class="legend-text">5:30PM–2:30AM</span>
-          <span class="badge badge-e1">E1</span><span class="legend-text">7:30PM–4:30AM</span>
-          <span class="badge badge-wo">WO</span><span class="legend-text">Weekly Off</span>
-          <span class="badge badge-pl">PL</span><span class="legend-text">Planned Leave</span>
-        </div>
-      </div>
+      <!-- Shift Codes section removed from here -->
     </aside>
 
     <!-- Main -->
     <main class="main-content">
-
       <header class="topbar">
         <div class="topbar-title">
           <h1>AI Shift Schedule Generator</h1>
-          <p>Upload your roster, set a date range, and let Groq AI build a complete shift schedule in seconds.</p>
+          <p>Upload your roster and set constraints. Let Groq AI build a complete shift schedule in seconds.</p>
         </div>
         <div class="topbar-badge">
           <span class="powered-by">Powered by</span>
@@ -87,7 +71,6 @@
       </header>
 
       <div class="card-grid">
-
         <!-- Card 1: API Key -->
         <div class="card" id="card-1">
           <div class="card-header">
@@ -101,7 +84,7 @@
             <div class="input-group">
               <label for="api_key">API Key</label>
               <div class="input-with-toggle">
-                <input type="password" id="api_key" placeholder="gsk_••••••••••••••••••••••••••••••••" autocomplete="off"/>
+                <input type="password" id="api_key" placeholder="gsk_••••••••" autocomplete="off"/>
                 <button class="toggle-vis" onclick="toggleKey()" title="Show/hide">👁</button>
               </div>
               <div class="input-hint">Get your free key at <a href="https://console.groq.com" target="_blank">console.groq.com</a></div>
@@ -158,9 +141,26 @@
           </div>
         </div>
 
+        <!-- NEW Card 4: Custom Prompt -->
+        <div class="card" id="card-4">
+          <div class="card-header">
+            <div class="card-icon">✍️</div>
+            <div>
+              <div class="card-title">Custom Instructions</div>
+              <div class="card-subtitle">Add specific shift constraints</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="input-group">
+              <label for="custom_prompt">Roster Requirements</label>
+              <textarea id="custom_prompt" placeholder="Example: Ensure John Doe is always on G shift. Every Tuesday should have at least 2 people on N shift..." style="background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; padding: 10px 12px; color: var(--text); font-size: 13px; width: 100%; min-height: 80px; resize: vertical; font-family: 'Inter', sans-serif;"></textarea>
+              <div class="input-hint">The AI will prioritize these rules when building the schedule.</div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      <!-- Generate Button -->
       <div class="generate-section">
         <button class="btn-generate" id="btn-generate" onclick="generate()">
           <span class="btn-icon">⚡</span>
@@ -168,7 +168,7 @@
         </button>
       </div>
 
-      <!-- Progress / Status -->
+      <!-- Progress / Status / Results (kept as is) -->
       <div class="status-panel hidden" id="status-panel">
         <div class="status-steps" id="status-steps">
           <div class="sstep" id="sstep-1"><span class="sstep-icon">⏳</span> Parsing roster file...</div>
@@ -181,7 +181,6 @@
         </div>
       </div>
 
-      <!-- Result -->
       <div class="result-panel hidden" id="result-panel">
         <div class="result-icon">🎉</div>
         <div class="result-text">
@@ -193,12 +192,10 @@
         </a>
       </div>
 
-      <!-- Error -->
       <div class="error-panel hidden" id="error-panel">
         <div class="error-icon">⚠️</div>
         <div class="error-text" id="error-text"></div>
       </div>
-
     </main>
   </div>
 
