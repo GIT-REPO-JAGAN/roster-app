@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 import pandas as pd
-from flask import Flask, request, jsonify, render_template, send_file
+from flask import Flask, request, jsonify, render_template, send_file, url_for
 from groq import Groq
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
@@ -67,8 +67,9 @@ def build_groq_prompt(employees, start_date, end_date, custom_prompt):
 
 def call_groq(api_key, prompt):
     client = Groq(api_key=api_key)
+    # FIXED: Updated model to the current supported version
     response = client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="llama-3.3-70b-versatile", 
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
         max_tokens=8000,
@@ -84,13 +85,11 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     ws = wb.active
     ws.title = "Shift Schedule"
 
-    # Styles
     header_fill = PatternFill("solid", fgColor="1F4E79")
     white_font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
     thin_border = Border(left=Side(style="thin", color="CCCCCC"), right=Side(style="thin", color="CCCCCC"),
                          top=Side(style="thin", color="CCCCCC"), bottom=Side(style="thin", color="CCCCCC"))
 
-    # Static Headers
     for row in range(1, 4):
         for col in range(1, 5):
             cell = ws.cell(row=row, column=col)
@@ -159,7 +158,6 @@ def generate():
         prompt = build_groq_prompt(employees, start_date, end_date, custom_prompt)
         groq_response = call_groq(api_key, prompt)
         
-        # Clean JSON
         raw = groq_response.strip()
         if raw.startswith("```"): raw = raw.split("\n", 1)[1].rsplit("\n", 1)[0]
         schedule_data = json.loads(raw).get("schedule", {})
