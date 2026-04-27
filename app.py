@@ -50,9 +50,13 @@ def read_roster(filepath):
             })
     return employees
 
-def build_groq_prompt(employees, start_date, end_date):
+def build_groq_prompt(employees, start_date, end_date, custom_prompt):
     emp_list = "\n".join([f"  - {e['name']} | {e['email']} | {e['skill']} | {e['location']}"
                           for e in employees])
+    
+    # Merge the system constraints with the user's custom prompt
+    user_constraints = f"\nUSER SPECIFIC REQUIREMENTS:\n{custom_prompt}" if custom_prompt else ""
+    
     return f"""You are an expert Excel workforce scheduling assistant.
 
 TASK: Generate a shift schedule JSON for the given employees and date range.
@@ -67,14 +71,15 @@ SHIFT CODES:
   E=5:30PM-2:30AM, E1=7:30PM-4:30AM, WO=Weekly Off, PL=Planned Leave,
   COFF=Compensatory Off, H=Holiday, SL=Sick Leave
 
+{user_constraints}
+
 CHAIN-OF-THOUGHT:
 Step 1: Parse the date range and enumerate every calendar day.
 Step 2: Mark all Saturdays and Sundays as WO.
-Step 3: For each employee, assign a consistent shift rotation on weekdays.
+Step 3: For each employee, assign a consistent shift rotation on weekdays, respecting the User Specific Requirements provided above.
         Distribute shifts realistically: mix of G, M, A, N, E, E1 shifts.
-        Occasionally insert PL or SL (1-2 days per employee per month max).
 Step 4: Ensure each employee has exactly one shift code per day.
-Step 5: Return ONLY valid JSON — no markdown, no explanation.
+Step 5: Return ONLY valid JSON.
 
 OUTPUT FORMAT (strict JSON, no extra text):
 {{
@@ -89,11 +94,13 @@ OUTPUT FORMAT (strict JSON, no extra text):
 
 Rules:
 - Every date in range must have an entry for every employee
-- Weekends must be WO
+- Weekends must be WO unless specified otherwise in requirements
 - Use realistic shift distribution
 - Return ONLY the JSON object, nothing else"""
 
 def call_groq(api_key, prompt):
+    # The fix for the 'proxies' error is ensuring we use the latest Groq client 
+    # without passing unexpected kwargs. 
     client = Groq(api_key=api_key)
     response = client.chat.completions.create(
         model="llama3-70b-8192",
@@ -131,7 +138,6 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
         bottom=Side(style="thin", color="CCCCCC"),
     )
 
-    # Fixed header columns A-D
     for row in range(1, 4):
         for col in range(1, 5):
             cell = ws.cell(row=row, column=col)
@@ -144,7 +150,6 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     for col, lbl in enumerate(["Name", "Email", "Skill", "Location"], start=1):
         ws.cell(row=3, column=col).value = lbl
 
-    # Build month groups for merging
     month_groups = {}
     for i, d in enumerate(dates):
         key = d.strftime("%b %Y")
@@ -153,44 +158,32 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
         else:
             month_groups[key]["end"] = i
 
-    # Date header columns
     col_offset = 5
-    prev_month_idx = 0
     for i, d in enumerate(dates):
         col = col_offset + i
         col_letter = get_column_letter(col)
         is_weekend = d.weekday() >= 5
-
-        # Row 2: date number
         c2 = ws.cell(row=2, column=col, value=d.day)
-        c2.font = Font(name="Arial", size=9, bold=True,
-                       color="FFFFFF" if not is_weekend else "333333")
+        c2.font = Font(name="Arial", size=9, bold=True, color="FFFFFF" if not is_weekend else "333333")
         c2.alignment = Alignment(horizontal="center", vertical="center")
         c2.fill = grey_fill if is_weekend else PatternFill("solid", fgColor="2E75B6")
-
-        # Row 3: day name
         c3 = ws.cell(row=3, column=col, value=d.strftime("%a"))
-        c3.font = Font(name="Arial", size=9, bold=True,
-                       color="555555" if is_weekend else "FFFFFF")
+        c3.font = Font(name="Arial", size=9, bold=True, color="555555" if is_weekend else "FFFFFF")
         c3.alignment = Alignment(horizontal="center", vertical="center")
         c3.fill = grey_fill if is_weekend else PatternFill("solid", fgColor="1F4E79")
-
         ws.column_dimensions[col_letter].width = 5
 
-    # Row 1: month name merged
     month_fill_idx = 0
     for month_key, span in month_groups.items():
         start_col = col_offset + span["start"]
         end_col   = col_offset + span["end"]
-        ws.merge_cells(start_row=1, start_column=start_col,
-                       end_row=1, end_column=end_col)
+        ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
         mc = ws.cell(row=1, column=start_col, value=month_key)
         mc.font  = white_font
         mc.fill  = month_fills[month_fill_idx % len(month_fills)]
         mc.alignment = Alignment(horizontal="center", vertical="center")
         month_fill_idx += 1
 
-    # Employee rows
     shift_colors = {
         "G": "E2EFDA", "M": "DDEBF7", "A": "FFF2CC",
         "N": "F4CCCC", "E": "EAD1DC", "E1": "D9D2E9",
@@ -201,43 +194,31 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     for row_idx, emp in enumerate(employees):
         row = 4 + row_idx
         row_bg = PatternFill("solid", fgColor="F7FBFF" if row_idx % 2 == 0 else "FFFFFF")
-
         for col, val in enumerate([emp["name"], emp["email"], emp["skill"], emp["location"]], 1):
             c = ws.cell(row=row, column=col, value=val)
-            c.font      = Font(name="Arial", size=10)
+            c.font = Font(name="Arial", size=10)
             c.alignment = Alignment(horizontal="left", vertical="center")
-            c.fill      = row_bg
-            c.border    = thin_border
-
+            c.fill = row_bg
+            c.border = thin_border
         for i, d in enumerate(dates):
             col = col_offset + i
-            date_key   = d.strftime("%Y-%m-%d")
+            date_key = d.strftime("%Y-%m-%d")
             shift_code = schedule_data.get(emp["name"], {}).get(date_key, "WO" if d.weekday() >= 5 else "")
             c = ws.cell(row=row, column=col, value=shift_code)
             fill_color = shift_colors.get(shift_code, "FFFFFF")
-            c.fill      = PatternFill("solid", fgColor=fill_color)
-            c.font      = Font(name="Arial", size=9)
+            c.fill = PatternFill("solid", fgColor=fill_color)
+            c.font = Font(name="Arial", size=9)
             c.alignment = Alignment(horizontal="center", vertical="center")
-            c.border    = thin_border
+            c.border = thin_border
 
-    # Column widths A-D
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 32
     ws.column_dimensions["C"].width = 22
     ws.column_dimensions["D"].width = 14
-
-    # Row heights
-    ws.row_dimensions[1].height = 18
-    ws.row_dimensions[2].height = 16
-    ws.row_dimensions[3].height = 16
-
-    # Freeze panes
     ws.freeze_panes = "E4"
 
-    # Legend block
     legend_start_row = 4 + len(employees) + 2
-    ws.cell(row=legend_start_row, column=1, value="SHIFT LEGEND").font = \
-        Font(name="Arial", size=10, bold=True)
+    ws.cell(row=legend_start_row, column=1, value="SHIFT LEGEND").font = Font(name="Arial", size=10, bold=True)
     for i, (code, desc) in enumerate(SHIFT_LEGEND.items()):
         r = legend_start_row + 1 + i
         c1 = ws.cell(row=r, column=1, value=code)
@@ -249,8 +230,6 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
 
     wb.save(output_path)
 
-# ── Routes ──────────────────────────────────────────────────────────────────
-
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -260,6 +239,7 @@ def generate():
     api_key    = request.form.get("api_key", "").strip()
     start_date = request.form.get("start_date", "").strip()
     end_date   = request.form.get("end_date", "").strip()
+    custom_prompt = request.form.get("custom_prompt", "").strip()
     file       = request.files.get("roster_file")
 
     if not all([api_key, start_date, end_date, file]):
@@ -269,7 +249,7 @@ def generate():
         datetime.strptime(start_date, "%Y-%m-%d")
         datetime.strptime(end_date,   "%Y-%m-%d")
     except ValueError:
-        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+        return jsonify({"error": "Invalid date format."}), 400
 
     filename = secure_filename(file.filename)
     upload_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4()}_{filename}")
@@ -280,10 +260,9 @@ def generate():
         if not employees:
             return jsonify({"error": "No employees found in the roster file."}), 400
 
-        prompt        = build_groq_prompt(employees, start_date, end_date)
+        prompt        = build_groq_prompt(employees, start_date, end_date, custom_prompt)
         groq_response = call_groq(api_key, prompt)
 
-        # Parse JSON from Groq
         raw = groq_response.strip()
         if raw.startswith("```"):
             raw = "\n".join(raw.split("\n")[1:])
@@ -315,10 +294,8 @@ def download(download_id):
     safe_id = secure_filename(download_id)
     path    = os.path.join(OUTPUT_FOLDER, f"schedule_{safe_id}.xlsx")
     if not os.path.exists(path):
-        return jsonify({"error": "File not found or expired."}), 404
-    return send_file(path, as_attachment=True,
-                     download_name="Roster_Schedule_Output.xlsx",
-                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        return jsonify({"error": "File not found."}), 404
+    return send_file(path, as_attachment=True, download_name="Roster_Schedule_Output.xlsx")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
