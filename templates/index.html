@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Roster Shift Scheduler — AI Powered</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+
+  <!-- Background grid -->
+  <div class="bg-grid"></div>
+
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon">⚡</div>
+        <div class="logo-text">
+          <span class="logo-title">ShiftAI</span>
+          <span class="logo-sub">Roster Scheduler</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">How It Works</div>
+        <div class="step-item active" data-step="1">
+          <div class="step-num">1</div>
+          <div class="step-info">
+            <div class="step-title">API Key</div>
+            <div class="step-desc">Enter your Groq API key</div>
+          </div>
+        </div>
+        <div class="step-item" data-step="2">
+          <div class="step-num">2</div>
+          <div class="step-info">
+            <div class="step-title">Upload Roster</div>
+            <div class="step-desc">Upload .xlsx roster file</div>
+          </div>
+        </div>
+        <div class="step-item" data-step="3">
+          <div class="step-num">3</div>
+          <div class="step-info">
+            <div class="step-title">Date Range</div>
+            <div class="step-desc">Set start and end dates</div>
+          </div>
+        </div>
+        <div class="step-item" data-step="4">
+          <div class="step-num">4</div>
+          <div class="step-info">
+            <div class="step-title">Generate</div>
+            <div class="step-desc">AI builds your schedule</div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="sidebar-legend">
+        <div class="nav-section-label">Shift Codes</div>
+        <div class="legend-grid">
+          <span class="badge badge-g">G</span><span class="legend-text">9:30AM–6:30PM</span>
+          <span class="badge badge-m">M</span><span class="legend-text">5:30AM–2:30PM</span>
+          <span class="badge badge-a">A</span><span class="legend-text">1:30PM–10:30PM</span>
+          <span class="badge badge-n">N</span><span class="legend-text">9:30PM–6:30AM</span>
+          <span class="badge badge-e">E</span><span class="legend-text">5:30PM–2:30AM</span>
+          <span class="badge badge-e1">E1</span><span class="legend-text">7:30PM–4:30AM</span>
+          <span class="badge badge-wo">WO</span><span class="legend-text">Weekly Off</span>
+          <span class="badge badge-pl">PL</span><span class="legend-text">Planned Leave</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main-content">
+
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1>AI Shift Schedule Generator</h1>
+          <p>Upload your roster, set a date range, and let Groq AI build a complete shift schedule in seconds.</p>
+        </div>
+        <div class="topbar-badge">
+          <span class="powered-by">Powered by</span>
+          <span class="groq-badge">Groq LLaMA3-70B</span>
+        </div>
+      </header>
+
+      <div class="card-grid">
+
+        <!-- Card 1: API Key -->
+        <div class="card" id="card-1">
+          <div class="card-header">
+            <div class="card-icon">🔑</div>
+            <div>
+              <div class="card-title">Groq API Key</div>
+              <div class="card-subtitle">Required to call the AI model</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="input-group">
+              <label for="api_key">API Key</label>
+              <div class="input-with-toggle">
+                <input type="password" id="api_key" placeholder="gsk_••••••••••••••••••••••••••••••••" autocomplete="off"/>
+                <button class="toggle-vis" onclick="toggleKey()" title="Show/hide">👁</button>
+              </div>
+              <div class="input-hint">Get your free key at <a href="https://console.groq.com" target="_blank">console.groq.com</a></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: File Upload -->
+        <div class="card" id="card-2">
+          <div class="card-header">
+            <div class="card-icon">📂</div>
+            <div>
+              <div class="card-title">Roster File</div>
+              <div class="card-subtitle">Upload your .xlsx input file</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="drop-zone" id="drop-zone" onclick="document.getElementById('roster_file').click()">
+              <div class="drop-icon">📋</div>
+              <div class="drop-text">Drop your roster here</div>
+              <div class="drop-sub">or click to browse — .xlsx only</div>
+              <input type="file" id="roster_file" accept=".xlsx" style="display:none" onchange="onFileSelect(event)"/>
+            </div>
+            <div class="file-info hidden" id="file-info">
+              <span class="file-icon">✅</span>
+              <span class="file-name" id="file-name-display"></span>
+              <button class="clear-file" onclick="clearFile()">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Date Range -->
+        <div class="card" id="card-3">
+          <div class="card-header">
+            <div class="card-icon">📅</div>
+            <div>
+              <div class="card-title">Date Range</div>
+              <div class="card-subtitle">Specify the schedule period</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="date-row">
+              <div class="input-group">
+                <label for="start_date">Start Date</label>
+                <input type="date" id="start_date"/>
+              </div>
+              <div class="date-arrow">→</div>
+              <div class="input-group">
+                <label for="end_date">End Date</label>
+                <input type="date" id="end_date"/>
+              </div>
+            </div>
+            <div class="date-summary hidden" id="date-summary"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Generate Button -->
+      <div class="generate-section">
+        <button class="btn-generate" id="btn-generate" onclick="generate()">
+          <span class="btn-icon">⚡</span>
+          <span class="btn-label">Generate Shift Schedule</span>
+        </button>
+      </div>
+
+      <!-- Progress / Status -->
+      <div class="status-panel hidden" id="status-panel">
+        <div class="status-steps" id="status-steps">
+          <div class="sstep" id="sstep-1"><span class="sstep-icon">⏳</span> Parsing roster file...</div>
+          <div class="sstep" id="sstep-2"><span class="sstep-icon">⏳</span> Calling Groq AI...</div>
+          <div class="sstep" id="sstep-3"><span class="sstep-icon">⏳</span> Building Excel file...</div>
+          <div class="sstep" id="sstep-4"><span class="sstep-icon">⏳</span> Applying formatting...</div>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div class="result-panel hidden" id="result-panel">
+        <div class="result-icon">🎉</div>
+        <div class="result-text">
+          <div class="result-title">Schedule Ready!</div>
+          <div class="result-sub" id="result-sub"></div>
+        </div>
+        <a class="btn-download" id="btn-download" href="#">
+          <span>⬇</span> Download .xlsx
+        </a>
+      </div>
+
+      <!-- Error -->
+      <div class="error-panel hidden" id="error-panel">
+        <div class="error-icon">⚠️</div>
+        <div class="error-text" id="error-text"></div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
