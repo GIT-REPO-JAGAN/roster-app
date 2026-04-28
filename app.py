@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import re
 import pandas as pd
 from flask import Flask, request, jsonify, render_template, send_file
 from groq import Groq
@@ -10,7 +11,6 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
 
-# FORCE-LOAD STRATEGY: Explicitly defining static and template folders
 app = Flask(__name__, 
             static_folder='static', 
             static_url_path='/static', 
@@ -46,7 +46,7 @@ def read_roster(filepath):
 
 def build_groq_prompt(employees, start_date, end_date, custom_prompt):
     emp_list = "\n".join([f"  - {e['name']} | {e['email']} | {e['skill']} | {e['location']}" for e in employees])
-    return f"""You are a Workforce Scheduling Engine. 
+    return f"""You are a strict JSON-generating Workforce Scheduling Engine.
     TASK: Generate a shift schedule JSON.
     DATE RANGE: {start_date} to {end_date}
     EMPLOYEES:
@@ -54,14 +54,15 @@ def build_groq_prompt(employees, start_date, end_date, custom_prompt):
 
     SHIFT CODES: G, M, A, N, E, E1, WO, PL, COFF, H, SL
 
-    USER SPECIFIC CONSTRAINTS (PRIORITY):
+    USER SPECIFIC CONSTRAINTS:
     {custom_prompt if custom_prompt else "No specific constraints provided."}
 
-    STRICT RULES:
-    1. prioritize the USER SPECIFIC CONSTRAINTS above all else.
-    2. Every employee must have exactly one shift code per day.
-    3. Weekends (Sat/Sun) are WO by default unless the user constraints specify otherwise.
-    4. Return ONLY a raw JSON object. No explanation, no markdown blocks.
+    STRICT JSON RULES:
+    1. Return ONLY raw JSON. 
+    2. No markdown blocks (no ```json).
+    3. NO trailing commas after the last item in any object or array.
+    4. Ensure every property name and string value is enclosed in DOUBLE QUOTES.
+    5. Every employee must have exactly one shift code for every single date in the range.
 
     OUTPUT FORMAT:
     {{
@@ -70,13 +71,30 @@ def build_groq_prompt(employees, start_date, end_date, custom_prompt):
       }}
     }}"""
 
+def clean_json_response(text):
+    """Removes markdown and handles common AI JSON syntax errors."""
+    # 1. Remove markdown code blocks if present
+    text = re.sub(r'```json\s*|\s*```', '', text)
+    
+    # 2. Find the first '{' and last '}' to strip conversational filler
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1:
+        text = text[start:end+1]
+    
+    # 3. Remove trailing commas before closing braces/brackets (Common AI mistake)
+    # This regex finds a comma followed by whitespace and a closing } or ]
+    text = re.sub(r',\s*([\}\]])', r'\1', text)
+    
+    return text.strip()
+
 def call_groq(api_key, prompt):
     client = Groq(api_key=api_key)
-    # Using the newest supported model to avoid 400 Decommissioned error
+    # Temperature 0.0 for maximum consistency and zero "creativity" in JSON formatting
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile", 
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
+        temperature=0.0, 
         max_tokens=8000,
     )
     return response.choices[0].message.content.strip()
@@ -163,15 +181,17 @@ def generate():
         prompt = build_groq_prompt(employees, start_date, end_date, custom_prompt)
         groq_response = call_groq(api_key, prompt)
         
-        raw = groq_response.strip()
-        if raw.startswith("```"): raw = raw.split("\n", 1)[1].rsplit("\n", 1)[0]
-        schedule_data = json.loads(raw).get("schedule", {})
+        # USE THE CLEANER FUNCTION TO FIX JSON ERRORS
+        cleaned_json = clean_json_response(groq_response)
+        schedule_data = json.loads(cleaned_json).get("schedule", {})
 
         output_id = str(uuid.uuid4())
         output_path = os.path.join(OUTPUT_FOLDER, f"schedule_{output_id}.xlsx")
         generate_excel(employees, schedule_data, start_date, end_date, output_path)
 
         return jsonify({"success": True, "download_id": output_id, "employee_count": len(employees)})
+    except json.JSONDecodeError as je:
+        return jsonify({"error": f"AI generated invalid JSON. Try again. Detail: {str(je)}"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
