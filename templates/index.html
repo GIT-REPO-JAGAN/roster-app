@@ -6,8 +6,8 @@
   <title>ShiftAI — Roster Scheduler</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
-  <!-- FIXED: Using Flask url_for to ensure CSS loads correctly -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"/>
+  <!-- FORCE-LOAD: Absolute path for CSS to bypass proxy issues -->
+  <link rel="stylesheet" href="/static/css/style.css"/>
 </head>
 <body>
   <div class="bg-grid"></div>
