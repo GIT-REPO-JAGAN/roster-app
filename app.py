@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 import pandas as pd
-from flask import Flask, request, jsonify, render_template, send_file, url_for
+from flask import Flask, request, jsonify, render_template, send_file
 from groq import Groq
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
@@ -10,7 +10,12 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
 
-app = Flask(__name__)
+# FORCE-LOAD STRATEGY: Explicitly defining static and template folders
+app = Flask(__name__, 
+            static_folder='static', 
+            static_url_path='/static', 
+            template_folder='templates')
+
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 UPLOAD_FOLDER = 'uploads'
 OUTPUT_FOLDER = 'outputs'
@@ -67,7 +72,7 @@ def build_groq_prompt(employees, start_date, end_date, custom_prompt):
 
 def call_groq(api_key, prompt):
     client = Groq(api_key=api_key)
-    # FIXED: Updated model to the current supported version
+    # Using the newest supported model to avoid 400 Decommissioned error
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile", 
         messages=[{"role": "user", "content": prompt}],
