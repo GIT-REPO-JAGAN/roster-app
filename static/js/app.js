@@ -2,23 +2,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('roster_file');
 
-    // Click trigger
-    dropZone.addEventListener('click', () => fileInput.click());
+    if (dropZone && fileInput) {
+        dropZone.addEventListener('click', () => fileInput.click());
 
-    // Drag and Drop
-    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = '#3b82f6'; });
-    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
-    dropZone.addEventListener('drop', e => {
-        e.preventDefault();
-        dropZone.style.borderColor = '';
-        const file = e.dataTransfer.files[0];
-        if (file) handleFile(file);
-    });
+        dropZone.addEventListener('dragover', e => { 
+            e.preventDefault(); 
+            dropZone.style.borderColor = '#3b82f6'; 
+        });
 
-    // Input change
-    fileInput.addEventListener('change', e => {
-        if (e.target.files[0]) handleFile(e.target.files[0]);
-    });
+        dropZone.addEventListener('dragleave', () => { 
+            dropZone.style.borderColor = ''; 
+        });
+
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.style.borderColor = '';
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+
+        fileInput.addEventListener('change', e => {
+            if (e.target.files[0]) handleFile(e.target.files[0]);
+        });
+    }
 });
 
 function handleFile(file) {
