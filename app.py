@@ -10,7 +10,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
+from json_repair import repair_json  # Professional library to fix AI JSON errors
 
+# FORCE-LOAD STRATEGY: Explicitly defining paths for GitHub Codespaces compatibility
 app = Flask(__name__, 
             static_folder='static', 
             static_url_path='/static', 
@@ -30,21 +32,28 @@ SHIFT_LEGEND = {
 }
 
 def read_roster(filepath):
+    """Safely reads the roster file and handles missing columns to prevent KeyError: 3."""
     df = pd.read_excel(filepath, header=None)
     employees = []
     for i, row in df.iterrows():
         val = str(row[0]).strip() if pd.notna(row[0]) else ""
+        # Skip headers and legend rows
         if val in ("", "Month", "Date", "Day") or any(val.startswith(p) for p in ["G (", "M (", "A (", "N (", "E (", "E1"]) or val in ("WO","PL","COFF","Holiday","SL"):
             continue
-        if pd.notna(row[0]) and pd.notna(row[1]):
+            
+        # SAFE ACCESS: Ensure at least Name and Email exist
+        if len(row) >= 2 and pd.notna(row[0]) and pd.notna(row[1]):
             employees.append({
-                "name": str(row[0]).strip(), "email": str(row[1]).strip(),
-                "skill": str(row[2]).strip() if pd.notna(row[2]) else "",
-                "location": str(row[3]).strip() if pd.notna(row[3]) else "",
+                "name":     str(row[0]).strip(),
+                "email":    str(row[1]).strip(),
+                # Check column length before accessing index 2 or 3 to prevent crash
+                "skill":    str(row[2]).strip() if (len(row) > 2 and pd.notna(row[2])) else "General",
+                "location": str(row[3]).strip() if (len(row) > 3 and pd.notna(row[3])) else "Remote",
             })
     return employees
 
 def build_groq_prompt(employees, start_date, end_date, custom_prompt):
+    """Builds a strict prompt to minimize JSON formatting errors."""
     emp_list = "\n".join([f"  - {e['name']} | {e['email']} | {e['skill']} | {e['location']}" for e in employees])
     return f"""You are a strict JSON-generating Workforce Scheduling Engine.
     TASK: Generate a shift schedule JSON.
@@ -54,15 +63,14 @@ def build_groq_prompt(employees, start_date, end_date, custom_prompt):
 
     SHIFT CODES: G, M, A, N, E, E1, WO, PL, COFF, H, SL
 
-    USER SPECIFIC CONSTRAINTS:
+    USER SPECIFIC CONSTRAINTS (PRIORITY):
     {custom_prompt if custom_prompt else "No specific constraints provided."}
 
     STRICT JSON RULES:
-    1. Return ONLY raw JSON. 
-    2. No markdown blocks (no ```json).
-    3. NO trailing commas after the last item in any object or array.
-    4. Ensure every property name and string value is enclosed in DOUBLE QUOTES.
-    5. Every employee must have exactly one shift code for every single date in the range.
+    1. Return ONLY raw JSON. No conversational text, no markdown blocks (no ```json).
+    2. NO trailing commas after the last item in any object or array.
+    3. All property names and string values MUST be enclosed in double quotes.
+    4. Every employee must have exactly one shift code for every date in the range.
 
     OUTPUT FORMAT:
     {{
@@ -71,35 +79,19 @@ def build_groq_prompt(employees, start_date, end_date, custom_prompt):
       }}
     }}"""
 
-def clean_json_response(text):
-    """Removes markdown and handles common AI JSON syntax errors."""
-    # 1. Remove markdown code blocks if present
-    text = re.sub(r'```json\s*|\s*```', '', text)
-    
-    # 2. Find the first '{' and last '}' to strip conversational filler
-    start = text.find('{')
-    end = text.rfind('}')
-    if start != -1 and end != -1:
-        text = text[start:end+1]
-    
-    # 3. Remove trailing commas before closing braces/brackets (Common AI mistake)
-    # This regex finds a comma followed by whitespace and a closing } or ]
-    text = re.sub(r',\s*([\}\]])', r'\1', text)
-    
-    return text.strip()
-
 def call_groq(api_key, prompt):
+    """Calls Groq AI with temperature 0.0 for maximum formatting precision."""
     client = Groq(api_key=api_key)
-    # Temperature 0.0 for maximum consistency and zero "creativity" in JSON formatting
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile", 
+        model="llama-3.3-70b-versatile", # Updated model to avoid decommission error
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.0, 
+        temperature=0.0, # Set to 0.0 to stop "creative" (broken) JSON formatting
         max_tokens=8000,
     )
     return response.choices[0].message.content.strip()
 
 def generate_excel(employees, schedule_data, start_date_str, end_date_str, output_path):
+    """Generates the final formatted Excel file."""
     start = datetime.strptime(start_date_str, "%Y-%m-%d")
     end = datetime.strptime(end_date_str, "%Y-%m-%d")
     dates = [start + timedelta(days=i) for i in range((end - start).days + 1)]
@@ -113,6 +105,7 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     thin_border = Border(left=Side(style="thin", color="CCCCCC"), right=Side(style="thin", color="CCCCCC"),
                          top=Side(style="thin", color="CCCCCC"), bottom=Side(style="thin", color="CCCCCC"))
 
+    # Static Headers
     for row in range(1, 4):
         for col in range(1, 5):
             cell = ws.cell(row=row, column=col)
@@ -126,6 +119,7 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     for col, lbl in enumerate(["Name", "Email", "Skill", "Location"], 1):
         ws.cell(row=3, column=col).value = lbl
 
+    # Date headers
     col_offset = 5
     for i, d in enumerate(dates):
         col = col_offset + i
@@ -140,6 +134,7 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
 
     shift_colors = {"G": "E2EFDA", "M": "DDEBF7", "A": "FFF2CC", "N": "F4CCCC", "E": "EAD1DC", "E1": "D9D2E9", "WO": "F2F2F2", "PL": "FCE5CD"}
 
+    # Employee Data
     for row_idx, emp in enumerate(employees):
         row = 4 + row_idx
         for col, val in enumerate([emp["name"], emp["email"], emp["skill"], emp["location"]], 1):
@@ -159,7 +154,8 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     wb.save(output_path)
 
 @app.route("/")
-def index(): return render_template("index.html")
+def index(): 
+    return render_template("index.html")
 
 @app.route("/api/generate", methods=["POST"])
 def generate():
@@ -178,29 +174,38 @@ def generate():
 
     try:
         employees = read_roster(upload_path)
+        if not employees:
+            return jsonify({"error": "No valid employee data found in file."}), 400
+            
         prompt = build_groq_prompt(employees, start_date, end_date, custom_prompt)
         groq_response = call_groq(api_key, prompt)
         
-        # USE THE CLEANER FUNCTION TO FIX JSON ERRORS
-        cleaned_json = clean_json_response(groq_response)
-        schedule_data = json.loads(cleaned_json).get("schedule", {})
+        # --- JSON REPAIR LOGIC ---
+        # 1. Remove potential markdown formatting
+        raw = groq_response.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r'^```json\s*|```$', '', raw, flags=re.MULTILINE)
+        
+        # 2. repair_json fixes missing commas and quotes automatically
+        repaired_json_str = repair_json(raw) 
+        schedule_data = json.loads(repaired_json_str).get("schedule", {})
+        # -------------------------
 
         output_id = str(uuid.uuid4())
         output_path = os.path.join(OUTPUT_FOLDER, f"schedule_{output_id}.xlsx")
         generate_excel(employees, schedule_data, start_date, end_date, output_path)
 
         return jsonify({"success": True, "download_id": output_id, "employee_count": len(employees)})
-    except json.JSONDecodeError as je:
-        return jsonify({"error": f"AI generated invalid JSON. Try again. Detail: {str(je)}"}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Processing Error: {str(e)}"}), 500
     finally:
-        if os.path.exists(upload_path): os.remove(upload_path)
+        if os.path.exists(upload_path): 
+            os.remove(upload_path)
 
 @app.route("/api/download/<download_id>")
 def download(download_id):
     path = os.path.join(OUTPUT_FOLDER, f"schedule_{secure_filename(download_id)}.xlsx")
-    return send_file(path, as_attachment=True) if os.path.exists(path) else jsonify({"error": "Not found"}), 404
+    return send_file(path, as_attachment=True) if os.path.exists(path) else jsonify({"error": "File not found"}), 404
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
