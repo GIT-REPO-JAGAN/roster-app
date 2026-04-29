@@ -12,35 +12,24 @@ from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
 from json_repair import repair_json
 
-# FORCE-LOAD STRATEGY: Explicitly defining paths for GitHub Codespaces compatibility
 app = Flask(__name__, 
             static_folder='static', 
             static_url_path='/static', 
             template_folder='templates')
 
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-
-# Absolute Paths to prevent 404 Not Found errors on download
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-SHIFT_LEGEND = {
-    "G": "9:30 AM – 6:30 PM", "M": "5:30 AM – 2:30 PM", "A": "1:30 PM – 10:30 PM",
-    "N": "9:30 PM – 6:30 AM", "E": "5:30 PM – 2:30 AM", "E1": "7:30 PM – 4:30 AM",
-    "WO": "Weekly Off", "PL": "Planned Leave", "COFF": "Compensatory Off",
-    "H": "Holiday", "SL": "Sick Leave",
-}
-
 def read_roster(filepath):
-    """Safely reads roster and handles missing columns to prevent KeyError."""
     df = pd.read_excel(filepath, header=None)
     employees = []
     for i, row in df.iterrows():
         val = str(row[0]).strip() if pd.notna(row[0]) else ""
-        if val in ("", "Month", "Date", "Day") or any(val.startswith(p) for p in ["G (", "M (", "A (", "N (", "E (", "E1"]) or val in ("WO","PL","COFF","Holiday","SL"):
+        if val in ("", "Month", "Date", "Day") or pd.isna(row[0]):
             continue
         if len(row) >= 2 and pd.notna(row[0]) and pd.notna(row[1]):
             employees.append({
@@ -52,31 +41,21 @@ def read_roster(filepath):
     return employees
 
 def build_groq_prompt(employees, start_date, end_date, custom_prompt):
-    """Updated Constraint-Based Prompt to prevent truncation and logic errors."""
     emp_list = "\n".join([f"  - {e['name']} | {e['skill']} | {e['location']}" for e in employees])
-    return f"""You are a strict JSON-generating Workforce Scheduling Engine.
-    TASK: Generate a complete shift schedule JSON.
+    return f"""You are a Universal Workforce Scheduling Engine.
+    TASK: Generate a complete shift schedule JSON based on the user's specific team rules.
     DATE RANGE: {start_date} to {end_date}
     EMPLOYEES:
     {emp_list}
 
-    ### SHIFT LOGIC (MANDATORY):
-    1. MONITORING TEAM:
-       - Coverage: MUST have at least 1 person on M, 1 on A, and 1 on N every single day.
-       - Pattern: 5 days ON, 2 days OFF (WO). Stagger off-days.
-    2. SME / SRE / ADMIN TEAMS:
-       - Shifts: Only M, A, or E.
-       - Pattern: Monday-Friday (Working), Saturday-Sunday (Always WO).
+    ### USER DEFINED RULES & SHIFT LEGEND:
+    {custom_prompt if custom_prompt else "No specific rules provided. Use standard 9-5 business hours, Mon-Fri, and WO for weekends."}
 
-    ### SHIFT CODES:
-    M: Morning, A: Afternoon, N: Night, E: Evening, WO: Weekly Off, PL: Planned Leave, SL: Sick Leave.
-
-    ### CRITICAL EXECUTION RULES:
-    - ZERO TRUNCATION: You must generate a shift for EVERY employee for EVERY single date in the range. Do not stop early.
-    - NO CONVERSATION: Return ONLY the raw JSON object.
-    - FORMAT: Double quotes for all keys and values. No trailing commas.
-
-    {f"USER SPECIFIC CONSTRAINTS: {custom_prompt}" if custom_prompt else ""}
+    ### STRICT EXECUTION RULES:
+    1. Use ONLY the shift codes defined in the User Rules above.
+    2. ZERO TRUNCATION: Every employee must have a shift assigned for EVERY date in the range.
+    3. Return ONLY raw JSON. No markdown, no conversation.
+    4. Double quotes for all keys/values. No trailing commas.
 
     OUTPUT FORMAT:
     {{
@@ -96,7 +75,6 @@ def call_groq(api_key, prompt):
     return response.choices[0].message.content.strip()
 
 def generate_excel(employees, schedule_data, start_date_str, end_date_str, output_path):
-    """Generates Excel with fallback shift logic and corrected month headers."""
     start = datetime.strptime(start_date_str, "%Y-%m-%d")
     end = datetime.strptime(end_date_str, "%Y-%m-%d")
     dates = [start + timedelta(days=i) for i in range((end - start).days + 1)]
@@ -105,14 +83,12 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     ws = wb.active
     ws.title = "Shift Schedule"
 
-    # Styles
     header_fill = PatternFill("solid", fgColor="1F4E79")
     month_fills = [PatternFill("solid", fgColor="2E75B6"), PatternFill("solid", fgColor="70AD47")]
     white_font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
     thin_border = Border(left=Side(style="thin", color="CCCCCC"), right=Side(style="thin", color="CCCCCC"),
                          top=Side(style="thin", color="CCCCCC"), bottom=Side(style="thin", color="CCCCCC"))
 
-    # 1. Setup Fixed Headers (A-D)
     for row in range(1, 4):
         for col in range(1, 5):
             cell = ws.cell(row=row, column=col)
@@ -126,7 +102,6 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     for col, lbl in enumerate(["Name", "Email", "Skill", "Location"], 1):
         ws.cell(row=3, column=col).value = lbl
 
-    # 2. Date Headers (Row 2 & 3)
     col_offset = 5
     for i, d in enumerate(dates):
         col = col_offset + i
@@ -139,29 +114,25 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
         c3.font = white_font if not is_weekend else Font(color="555555")
         ws.column_dimensions[get_column_letter(col)].width = 5
 
-    # 3. Month Header Merge (Row 1) - FIX: Ensuring full coverage
     month_groups = {}
     for i, d in enumerate(dates):
         key = d.strftime("%B %Y")
-        if key not in month_groups:
-            month_groups[key] = {"start": i, "end": i}
-        else:
-            month_groups[key]["end"] = i
+        if key not in month_groups: month_groups[key] = {"start": i, "end": i}
+        else: month_groups[key]["end"] = i
 
     month_fill_idx = 0
     for month_key, span in month_groups.items():
         start_col = col_offset + span["start"]
         end_col = col_offset + span["end"]
-        if end_col > start_col:
-            ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
+        if end_col > start_col: ws.merge_cells(start_row=1, start_column=start_col, end_row=1, end_column=end_col)
         mc = ws.cell(row=1, column=start_col, value=month_key)
         mc.font = white_font
         mc.fill = month_fills[month_fill_idx % len(month_fills)]
         mc.alignment = Alignment(horizontal="center", vertical="center")
         month_fill_idx += 1
 
-    # 4. Employee Data with Fallback Logic
-    shift_colors = {"G": "E2EFDA", "M": "DDEBF7", "A": "FFF2CC", "N": "F4CCCC", "E": "EAD1DC", "E1": "D9D2E9", "WO": "F2F2F2", "PL": "FCE5CD"}
+    # Generic Colors: Maps common codes to colors, otherwise uses white
+    generic_colors = {"WO": "F2F2F2", "PL": "FCE5CD", "SL": "EA9999", "H": "FFE599"}
 
     for row_idx, emp in enumerate(employees):
         row = 4 + row_idx
@@ -172,14 +143,9 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
         for i, d in enumerate(dates):
             col = col_offset + i
             date_key = d.strftime("%Y-%m-%d")
-            
-            # FALLBACK: If AI missed this cell, apply business rules manually
-            shift_code = schedule_data.get(emp["name"], {}).get(date_key)
-            if not shift_code:
-                shift_code = "WO" if d.weekday() >= 5 else "G"
-            
+            shift_code = schedule_data.get(emp["name"], {}).get(date_key, "WO" if d.weekday() >= 5 else "")
             c = ws.cell(row=row, column=col, value=shift_code)
-            c.fill = PatternFill("solid", fgColor=shift_colors.get(shift_code, "FFFFFF"))
+            c.fill = PatternFill("solid", fgColor=generic_colors.get(shift_code, "FFFFFF"))
             c.border = thin_border
 
     ws.column_dimensions["A"].width = 25
@@ -208,20 +174,15 @@ def generate():
     try:
         employees = read_roster(upload_path)
         if not employees: return jsonify({"error": "No valid employee data found."}), 400
-        
         prompt = build_groq_prompt(employees, start_date, end_date, custom_prompt)
         groq_response = call_groq(api_key, prompt)
-        
-        # JSON Repair for long AI outputs
         raw = groq_response.strip()
         if raw.startswith("```"): raw = re.sub(r'^```json\s*|```$', '', raw, flags=re.MULTILINE)
         repaired_json_str = repair_json(raw) 
         schedule_data = json.loads(repaired_json_str).get("schedule", {})
-
         output_id = str(uuid.uuid4())
         output_path = os.path.join(OUTPUT_FOLDER, f"schedule_{output_id}.xlsx")
         generate_excel(employees, schedule_data, start_date, end_date, output_path)
-
         return jsonify({"success": True, "download_id": output_id, "employee_count": len(employees)})
     except Exception as e:
         return jsonify({"error": f"Processing Error: {str(e)}"}), 500
