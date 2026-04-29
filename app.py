@@ -18,8 +18,6 @@ app = Flask(__name__,
             template_folder='templates')
 
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-
-# Absolute Paths for Codespaces/Cloud compatibility
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
@@ -27,7 +25,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 def read_roster(filepath):
-    """Safely reads roster and handles missing columns to prevent KeyError."""
     df = pd.read_excel(filepath, header=None)
     employees = []
     for i, row in df.iterrows():
@@ -44,7 +41,6 @@ def read_roster(filepath):
     return employees
 
 def build_groq_prompt(employees, start_date, end_date, custom_prompt):
-    """Universal prompt using the Compressed Array Format to prevent truncation."""
     emp_list = "\n".join([f"  - {e['name']} | {e['skill']} | {e['location']}" for e in employees])
     return f"""You are a Universal Workforce Scheduling Engine.
     TASK: Generate a complete shift schedule.
@@ -135,7 +131,6 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
         mc.alignment = Alignment(horizontal="center", vertical="center")
         month_fill_idx += 1
 
-    # UPDATED COLORS: Added E1 and E2 to match your shift legend
     generic_colors = {
         "WO": "F2F2F2", "PL": "FCE5CD", "SL": "EA9999", "H": "FFE599",
         "E1": "D9D2E9", "E2": "B4A7D6", "G": "E2EFDA", "M": "DDEBF7", "A": "FFF2CC", "N": "F4CCCC"
@@ -171,7 +166,7 @@ def index(): return render_template("index.html")
 def generate():
     api_key = request.form.get("api_key", "").strip()
     start_date = request.form.get("start_date", "").strip()
-    end_date = request.form.get("end_date", "").strip()
+    end_date = request.form.get("end_date, "").strip() # Typo in key name
     custom_prompt = request.form.get("custom_prompt", "").strip()
     file = request.files.get("roster_file")
 
@@ -183,7 +178,7 @@ def generate():
     file.save(upload_path)
 
     try:
-        employees = read_//Crosture employees = read_roster(upload_path)
+        employees = read_roster(upload_path)
         if not employees: return jsonify({"error": "No valid employee data found."}), 400
         prompt = build_groq_prompt(employees, start_date, end_date, custom_prompt)
         groq_response = call_groq(api_key, prompt)
@@ -191,7 +186,7 @@ def generate():
         if raw.startswith("```"): raw = re.sub(r'^```json\s*|```$', '', raw, flags=re.MULTILINE)
         repaired_json_str = repair_json(raw) 
         schedule_data = json.loads(repaired_json_str).get("schedule", {})
-        output_id = str(uuid.uuid4())
+        output_id = str(uuid.uuid4() )
         output_path = os.path.join(OUTPUT_FOLDER, f"schedule_{output_id}.xlsx")
         generate_excel(employees, schedule_data, start_date, end_date, output_path)
         return jsonify({"success": True, "download_id": output_id, "employee_count": len(employees)})
