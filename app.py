@@ -12,12 +12,15 @@ from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
 from json_repair import repair_json
 
+# FORCE-LOAD STRATEGY: Explicitly defining paths for GitHub Codespaces compatibility
 app = Flask(__name__, 
             static_folder='static', 
             static_url_path='/static', 
             template_folder='templates')
 
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+
+# Absolute Paths to prevent 404 Not Found errors on download
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
@@ -25,6 +28,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 def read_roster(filepath):
+    """Safely reads roster and handles missing columns to prevent KeyError."""
     df = pd.read_excel(filepath, header=None)
     employees = []
     for i, row in df.iterrows():
@@ -41,6 +45,7 @@ def read_roster(filepath):
     return employees
 
 def build_groq_prompt(employees, start_date, end_date, custom_prompt):
+    """Universal prompt using the Compressed Array Format to prevent truncation."""
     emp_list = "\n".join([f"  - {e['name']} | {e['skill']} | {e['location']}" for e in employees])
     return f"""You are a Universal Workforce Scheduling Engine.
     TASK: Generate a complete shift schedule.
@@ -166,7 +171,8 @@ def index(): return render_template("index.html")
 def generate():
     api_key = request.form.get("api_key", "").strip()
     start_date = request.form.get("start_date", "").strip()
-    end_date = request.form.get("end_date, "").strip() # Typo in key name
+    # FIXED: Corrected the unterminated string literal here
+    end_date = request.form.get("end_date", "").strip() 
     custom_prompt = request.form.get("custom_prompt", "").strip()
     file = request.files.get("roster_file")
 
@@ -186,7 +192,7 @@ def generate():
         if raw.startswith("```"): raw = re.sub(r'^```json\s*|```$', '', raw, flags=re.MULTILINE)
         repaired_json_str = repair_json(raw) 
         schedule_data = json.loads(repaired_json_str).get("schedule", {})
-        output_id = str(uuid.uuid4() )
+        output_id = str(uuid.uuid4())
         output_path = os.path.join(OUTPUT_FOLDER, f"schedule_{output_id}.xlsx")
         generate_excel(employees, schedule_data, start_date, end_date, output_path)
         return jsonify({"success": True, "download_id": output_id, "employee_count": len(employees)})
