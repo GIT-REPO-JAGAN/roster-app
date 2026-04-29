@@ -10,9 +10,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
-from json_repair import repair_json   Professional library to fix AI JSON errors
+from json_repair import repair_json # Professional library to fix AI JSON errors
 
- FORCE-LOAD STRATEGY: Explicitly defining paths for GitHub Codespaces compatibility
+# FORCE-LOAD STRATEGY: Explicitly defining paths for GitHub Codespaces compatibility
 app = Flask(__name__, 
             static_folder='static', 
             static_url_path='/static', 
@@ -37,18 +37,18 @@ def read_roster(filepath):
     employees = []
     for i, row in df.iterrows():
         val = str(row[0]).strip() if pd.notna(row[0]) else ""
-         Skip headers and legend rows
+        # Skip headers and legend rows
         if val in ("", "Month", "Date", "Day") or any(val.startswith(p) for p in ["G (", "M (", "A (", "N (", "E (", "E1"]) or val in ("WO","PL","COFF","Holiday","SL"):
             continue
             
-         SAFE ACCESS: Ensure at least Name and Email exist
-        if len(row) = 2 and pd.notna(row[0]) and pd.notna(row[1]):
+        # SAFE ACCESS: Ensure at least Name and Email exist
+        if len(row) >= 2 and pd.notna(row[0]) and pd.notna(row[1]):
             employees.append({
                 "name":     str(row[0]).strip(),
                 "email":    str(row[1]).strip(),
-                 Check column length before accessing index 2 or 3 to prevent crash
-                "skill":    str(row[2]).strip() if (len(row) 2 and pd.notna(row[2])) else "General",
-                "location": str(row[3]).strip() if (len(row) 3 and pd.notna(row[3])) else "Remote",
+                # Check column length before accessing index 2 or 3 to prevent crash
+                "skill":    str(row[2]).strip() if (len(row) > 2 and pd.notna(row[2])) else "General",
+                "location": str(row[3]).strip() if (len(row) > 3 and pd.notna(row[3])) else "Remote",
             })
     return employees
 
@@ -83,9 +83,9 @@ def call_groq(api_key, prompt):
     """Calls Groq AI with temperature 0.0 for maximum formatting precision."""
     client = Groq(api_key=api_key)
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",  Updated model to avoid decommission error
+        model="llama-3.3-70b-versatile", # Updated model to avoid decommission error
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.0,  Set to 0.0 to stop "creative" (broken) JSON formatting
+        temperature=0.0, # Set to 0.0 to stop "creative" (broken) JSON formatting
         max_tokens=8000,
     )
     return response.choices[0].message.content.strip()
@@ -105,7 +105,7 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     thin_border = Border(left=Side(style="thin", color="CCCCCC"), right=Side(style="thin", color="CCCCCC"),
                          top=Side(style="thin", color="CCCCCC"), bottom=Side(style="thin", color="CCCCCC"))
 
-     Static Headers
+    # Static Headers
     for row in range(1, 4):
         for col in range(1, 5):
             cell = ws.cell(row=row, column=col)
@@ -119,11 +119,11 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
     for col, lbl in enumerate(["Name", "Email", "Skill", "Location"], 1):
         ws.cell(row=3, column=col).value = lbl
 
-     Date headers
+    # Date headers
     col_offset = 5
     for i, d in enumerate(dates):
         col = col_offset + i
-        is_weekend = d.weekday() = 5
+        is_weekend = d.weekday() >= 5
         c2 = ws.cell(row=2, column=col, value=d.day)
         c2.fill = PatternFill("solid", fgColor="D9D9D9" if is_weekend else "2E75B6")
         c2.font = white_font if not is_weekend else Font(color="333333")
@@ -134,7 +134,7 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
 
     shift_colors = {"G": "E2EFDA", "M": "DDEBF7", "A": "FFF2CC", "N": "F4CCCC", "E": "EAD1DC", "E1": "D9D2E9", "WO": "F2F2F2", "PL": "FCE5CD"}
 
-     Employee Data
+    # Employee Data
     for row_idx, emp in enumerate(employees):
         row = 4 + row_idx
         for col, val in enumerate([emp["name"], emp["email"], emp["skill"], emp["location"]], 1):
@@ -143,7 +143,7 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
         for i, d in enumerate(dates):
             col = col_offset + i
             date_key = d.strftime("%Y-%m-%d")
-            shift_code = schedule_data.get(emp["name"], {}).get(date_key, "WO" if d.weekday() = 5 else "")
+            shift_code = schedule_data.get(emp["name"], {}).get(date_key, "WO" if d.weekday() >= 5 else "")
             c = ws.cell(row=row, column=col, value=shift_code)
             c.fill = PatternFill("solid", fgColor=shift_colors.get(shift_code, "FFFFFF"))
             c.border = thin_border
@@ -180,16 +180,16 @@ def generate():
         prompt = build_groq_prompt(employees, start_date, end_date, custom_prompt)
         groq_response = call_groq(api_key, prompt)
         
-         --- JSON REPAIR LOGIC ---
-         1. Remove potential markdown formatting
+        # --- JSON REPAIR LOGIC ---
+        # 1. Remove potential markdown formatting
         raw = groq_response.strip()
         if raw.startswith("```"):
             raw = re.sub(r'^```json\s*|```$', '', raw, flags=re.MULTILINE)
         
-         2. repair_json fixes missing commas and quotes automatically
+        # 2. repair_json fixes missing commas and quotes automatically
         repaired_json_str = repair_json(raw) 
         schedule_data = json.loads(repaired_json_str).get("schedule", {})
-         -------------------------
+        # -------------------------
 
         output_id = str(uuid.uuid4())
         output_path = os.path.join(OUTPUT_FOLDER, f"schedule_{output_id}.xlsx")
@@ -202,7 +202,7 @@ def generate():
         if os.path.exists(upload_path): 
             os.remove(upload_path)
 
-@app.route("/api/download/<download_id")
+@app.route("/api/download/<download_id>")
 def download(download_id):
     path = os.path.join(OUTPUT_FOLDER, f"schedule_{secure_filename(download_id)}.xlsx")
     return send_file(path, as_attachment=True) if os.path.exists(path) else jsonify({"error": "File not found"}), 404
