@@ -12,10 +12,7 @@ from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
 from json_repair import repair_json
 
-app = Flask(__name__, 
-            static_folder='static', 
-            static_url_path='/static', 
-            template_folder='templates')
+app = Flask(__name__, static_folder='static', static_url_path='/static', template_folder='templates')
 
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -29,38 +26,39 @@ def read_roster(filepath):
     employees = []
     for i, row in df.iterrows():
         val = str(row[0]).strip() if pd.notna(row[0]) else ""
-        if val in ("", "Month", "Date", "Day") or pd.isna(row[0]):
-            continue
+        if val in ("", "Month", "Date", "Day") or pd.isna(row[0]): continue
         if len(row) >= 2 and pd.notna(row[0]) and pd.notna(row[1]):
             employees.append({
-                "name":     str(row[0]).strip(),
-                "email":    str(row[1]).strip(),
-                "skill":    str(row[2]).strip() if (len(row) > 2 and pd.notna(row[2])) else "General",
+                "name": str(row[0]).strip(),
+                "email": str(row[1]).strip(),
+                "skill": str(row[2]).strip() if (len(row) > 2 and pd.notna(row[2])) else "General",
                 "location": str(row[3]).strip() if (len(row) > 3 and pd.notna(row[3])) else "Remote",
             })
     return employees
 
 def build_groq_prompt(employees, start_date, end_date, custom_prompt):
+    # We provide location and skill to the AI so it can apply the location-based rules
     emp_list = "\n".join([f"  - {e['name']} | {e['skill']} | {e['location']}" for e in employees])
+    
     return f"""You are a Universal Workforce Scheduling Engine.
-    TASK: Generate a complete shift schedule JSON based on the user's specific team rules.
+    TASK: Generate a complete shift schedule.
     DATE RANGE: {start_date} to {end_date}
     EMPLOYEES:
     {emp_list}
 
     ### USER DEFINED RULES & SHIFT LEGEND:
-    {custom_prompt if custom_prompt else "No specific rules provided. Use standard 9-5 business hours, Mon-Fri, and WO for weekends."}
+    {custom_prompt if custom_prompt else "Standard business hours, Mon-Fri, WO for weekends."}
 
     ### STRICT EXECUTION RULES:
-    1. Use ONLY the shift codes defined in the User Rules above.
-    2. ZERO TRUNCATION: Every employee must have a shift assigned for EVERY date in the range.
-    3. Return ONLY raw JSON. No markdown, no conversation.
-    4. Double quotes for all keys/values. No trailing commas.
+    1. COMPRESSED FORMAT: To avoid truncation, return the shifts as a simple array of strings for each employee.
+    2. ZERO TRUNCATION: You MUST provide a shift for every employee for every date in the range.
+    3. Return ONLY raw JSON. No markdown, no conversational text.
+    4. Every array must have exactly {(datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")).days + 1} entries.
 
     OUTPUT FORMAT:
     {{
       "schedule": {{
-        "Employee Name": {{ "YYYY-MM-DD": "CODE" }}
+        "Employee Name": ["SHIFT1", "SHIFT2", "SHIFT3", ...]
       }}
     }}"""
 
@@ -131,7 +129,6 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
         mc.alignment = Alignment(horizontal="center", vertical="center")
         month_fill_idx += 1
 
-    # Generic Colors: Maps common codes to colors, otherwise uses white
     generic_colors = {"WO": "F2F2F2", "PL": "FCE5CD", "SL": "EA9999", "H": "FFE599"}
 
     for row_idx, emp in enumerate(employees):
@@ -140,10 +137,17 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
             c = ws.cell(row=row, column=col, value=val)
             c.border = thin_border
         
+        # Get the compressed array from AI
+        shifts = schedule_data.get(emp["name"], [])
+        
         for i, d in enumerate(dates):
             col = col_offset + i
-            date_key = d.strftime("%Y-%m-%d")
-            shift_code = schedule_data.get(emp["name"], {}).get(date_key, "WO" if d.weekday() >= 5 else "")
+            # Safely get shift from array, fallback to WO for weekends or G for weekdays
+            if i < len(shifts):
+                shift_code = shifts[i]
+            else:
+                shift_code = "WO" if d.weekday() >= 5 else "G"
+            
             c = ws.cell(row=row, column=col, value=shift_code)
             c.fill = PatternFill("solid", fgColor=generic_colors.get(shift_code, "FFFFFF"))
             c.border = thin_border
