@@ -12,9 +12,14 @@ from openpyxl.utils import get_column_letter
 from datetime import datetime, timedelta
 from json_repair import repair_json
 
-app = Flask(__name__, static_folder='static', static_url_path='/static', template_folder='templates')
+app = Flask(__name__, 
+            static_folder='static', 
+            static_url_path='/static', 
+            template_folder='templates')
 
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+
+# Absolute Paths for Codespaces/Cloud compatibility
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
@@ -22,24 +27,25 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 def read_roster(filepath):
+    """Safely reads roster and handles missing columns to prevent KeyError."""
     df = pd.read_excel(filepath, header=None)
     employees = []
     for i, row in df.iterrows():
         val = str(row[0]).strip() if pd.notna(row[0]) else ""
-        if val in ("", "Month", "Date", "Day") or pd.isna(row[0]): continue
+        if val in ("", "Month", "Date", "Day") or pd.isna(row[0]):
+            continue
         if len(row) >= 2 and pd.notna(row[0]) and pd.notna(row[1]):
             employees.append({
-                "name": str(row[0]).strip(),
-                "email": str(row[1]).strip(),
-                "skill": str(row[2]).strip() if (len(row) > 2 and pd.notna(row[2])) else "General",
+                "name":     str(row[0]).strip(),
+                "email":    str(row[1]).strip(),
+                "skill":    str(row[2]).strip() if (len(row) > 2 and pd.notna(row[2])) else "General",
                 "location": str(row[3]).strip() if (len(row) > 3 and pd.notna(row[3])) else "Remote",
             })
     return employees
 
 def build_groq_prompt(employees, start_date, end_date, custom_prompt):
-    # We provide location and skill to the AI so it can apply the location-based rules
+    """Universal prompt using the Compressed Array Format to prevent truncation."""
     emp_list = "\n".join([f"  - {e['name']} | {e['skill']} | {e['location']}" for e in employees])
-    
     return f"""You are a Universal Workforce Scheduling Engine.
     TASK: Generate a complete shift schedule.
     DATE RANGE: {start_date} to {end_date}
@@ -50,9 +56,9 @@ def build_groq_prompt(employees, start_date, end_date, custom_prompt):
     {custom_prompt if custom_prompt else "Standard business hours, Mon-Fri, WO for weekends."}
 
     ### STRICT EXECUTION RULES:
-    1. COMPRESSED FORMAT: To avoid truncation, return the shifts as a simple array of strings for each employee.
-    2. ZERO TRUNCATION: You MUST provide a shift for every employee for every date in the range.
-    3. Return ONLY raw JSON. No markdown, no conversational text.
+    1. COMPRESSED FORMAT: Return the shifts as a simple array of strings for each employee.
+    2. ZERO TRUNCATION: Every employee MUST have a shift assigned for EVERY date in the range.
+    3. Return ONLY raw JSON. No markdown, no conversation.
     4. Every array must have exactly {(datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")).days + 1} entries.
 
     OUTPUT FORMAT:
@@ -129,7 +135,11 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
         mc.alignment = Alignment(horizontal="center", vertical="center")
         month_fill_idx += 1
 
-    generic_colors = {"WO": "F2F2F2", "PL": "FCE5CD", "SL": "EA9999", "H": "FFE599"}
+    # UPDATED COLORS: Added E1 and E2 to match your shift legend
+    generic_colors = {
+        "WO": "F2F2F2", "PL": "FCE5CD", "SL": "EA9999", "H": "FFE599",
+        "E1": "D9D2E9", "E2": "B4A7D6", "G": "E2EFDA", "M": "DDEBF7", "A": "FFF2CC", "N": "F4CCCC"
+    }
 
     for row_idx, emp in enumerate(employees):
         row = 4 + row_idx
@@ -137,12 +147,9 @@ def generate_excel(employees, schedule_data, start_date_str, end_date_str, outpu
             c = ws.cell(row=row, column=col, value=val)
             c.border = thin_border
         
-        # Get the compressed array from AI
         shifts = schedule_data.get(emp["name"], [])
-        
         for i, d in enumerate(dates):
             col = col_offset + i
-            # Safely get shift from array, fallback to WO for weekends or G for weekdays
             if i < len(shifts):
                 shift_code = shifts[i]
             else:
@@ -176,7 +183,7 @@ def generate():
     file.save(upload_path)
 
     try:
-        employees = read_roster(upload_path)
+        employees = read_//Crosture employees = read_roster(upload_path)
         if not employees: return jsonify({"error": "No valid employee data found."}), 400
         prompt = build_groq_prompt(employees, start_date, end_date, custom_prompt)
         groq_response = call_groq(api_key, prompt)
